@@ -1,0 +1,11 @@
+iOS —
+
+https://github.com/mattt/DictionaryKit
+http://nshipster.com/dictionary-services/
+https://github.com/nst/iOS-Runtime-Headers/blob/master/PrivateFrameworks/ProofReader.framework/AppleSpell.h
+http://nshipster.com/uitextchecker/
+https://stackoverflow.com/questions/28315325/customise-the-quicktype-suggestions-in-ios-keyboard
+https://stackoverflow.com/questions/28889368/possible-to-programmatically-feed-the-ios-predictive-keyboard-context-source-tex
+
+macOS — 
+https://apple.stackexchange.com/questions/100637/what-file-contains-user-typed-words-user-dictionary?noredirect=1&lq=1
