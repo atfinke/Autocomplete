@@ -34,14 +34,16 @@ struct Suggestion {
 
 class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate  {
 
+    // MARK: - Properties
+
     @IBOutlet var textView: ArrowTextView!
     @IBOutlet weak var tableView: NSTableView!
-    @IBOutlet weak var freakingAppKit: NSScrollView!
+    @IBOutlet weak var tableViewScrollView: NSScrollView!
 
     var suggestions = [Suggestion]()
-    var words = [String]()
 
-
+    // MARK: - View Life Cycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -50,10 +52,11 @@ class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSourc
         tableView.delegate = self
         tableView.dataSource = self
 
+        self.tableViewScrollView.wantsLayer = true
+        self.tableViewScrollView.layer!.cornerRadius = 6;
+
         textView.isAutomaticTextCompletionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-
-        words = try! String(contentsOfFile: Bundle.main.path(forResource: "20k", ofType: "txt")!).components(separatedBy: "\n")
 
         NotificationCenter.default.addObserver(forName: Notification.Name("up"), object: nil, queue: nil) { _ in
             let currentIndex = self.tableView.selectedRow
@@ -66,8 +69,9 @@ class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSourc
             let newIndex = min(self.suggestions.count - 1, currentIndex + 1)
             self.tableView.selectRowIndexes(IndexSet(integersIn: newIndex...newIndex), byExtendingSelection: false)
         }
-
     }
+
+    // MARK: - NSTableViewDataSource
 
     func numberOfRows(in tableView: NSTableView) -> Int {
         return suggestions.count
@@ -83,6 +87,8 @@ class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSourc
         return cell
     }
 
+    // MARK: - NSTextViewDelegate
+
     func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         if replacementString == "\n" {
             var words = textView.string.components(separatedBy: " ")
@@ -96,54 +102,53 @@ class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSourc
     }
 
     func textDidChange(_ notification: Notification) {
-
-        let bla = (textView.string as NSString).range(of: " ", options: .backwards)
-
-        guard bla.location != NSNotFound, let rect = boundingRectForCharacterRange(range: bla) else {
-            return
+        let lastSpace = (textView.string as NSString).range(of: " ", options: .backwards)
+        guard lastSpace.location != NSNotFound,
+            let layoutManager = textView.layoutManager,
+            let textContainer = textView.textContainer else {
+                return
         }
+
+        var glyphRange = NSRange()
+        layoutManager.characterRange(forGlyphRange: lastSpace, actualGlyphRange: &glyphRange)
+        let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
         guard let lastWord = textView.string.components(separatedBy: " ").last, lastWord.count > 2 else {
-            freakingAppKit.isHidden = true
+            tableViewScrollView.isHidden = true
             return
         }
-
         let lower = lastWord.lowercased()
 
-        var isLow = true
+        let backgroundColor = NSColor(calibratedRed: 250.0/255.0,
+                                      green: 240.0/255.0,
+                                      blue: 200.0/255.0,
+                                      alpha: 1.0)
 
-        if let char = lastWord.first,
-            let scala = UnicodeScalar(String(describing: char)),
-            CharacterSet.uppercaseLetters.contains(scala) {
-            isLow = false
-        }
-
-        let c = NSColor(calibratedRed: 250.0/255.0, green: 240.0/255.0, blue: 200.0/255.0, alpha: 1.0)
         DispatchQueue.global().async {
-            let filteredWords = Array(self.words.filter({ $0.starts(with: lower) }).sorted(by: { (lhs, rhs) -> Bool in
-                return lhs.count < rhs.count
-            }))
+            let completions = NSSpellChecker.shared.completions(forPartialWordRange: NSRange(location: lastSpace.location + 1, length: lower.count), in: self.textView.string, language: nil, inSpellDocumentWithTag: 0) ?? []
 
             var newSuggestions = [Suggestion]()
+            for word in completions {
 
-            for word in filteredWords {
-                if let def =  DCSCopyTextDefinition(nil, word as CFString, CFRangeMake(0, word.count))?.takeRetainedValue() {
-                    let bri = (def as NSString)
-                    if bri.range(of: "▶").location != NSNotFound {
-                        let aaa = bri.substring(from: bri.range(of: "▶").location + 1) as NSString
-                        if aaa.range(of: " ").location != NSNotFound {
-                            let ex = aaa.substring(to: aaa.range(of: " ").location)
-                            let str = (isLow ? word : word.capitalized)
+                if let fullDefinition = DCSCopyTextDefinition(nil, word as CFString, CFRangeMake(0, word.count))?.takeRetainedValue() {
 
-                            let string = NSMutableAttributedString(string: str)
+                    let definitions = (fullDefinition as String).components(separatedBy: "|")
+                    if definitions.count > 2 {
+                        let firstDefinitionParts = definitions[2].components(separatedBy: " ")
+                        if firstDefinitionParts.count > 1 {
+                            let relevantRange = NSRange(location: 0, length: lower.count)
+
+                            let string = NSMutableAttributedString(string: word)
                             string.beginEditing()
-                            string.addAttribute(NSAttributedStringKey.backgroundColor, value: c, range: NSRange(location: 0, length: lower.count))
-                            string.addAttribute(NSAttributedStringKey.underlineStyle, value: 1, range: NSRange(location: 0, length: lower.count))
-                            string.addAttribute(NSAttributedStringKey.underlineColor, value: NSColor.orange, range: NSRange(location: 0, length: lower.count))
+                            string.addAttribute(.backgroundColor, value: backgroundColor, range: relevantRange)
+                            string.addAttribute(.underlineStyle, value: 1, range: relevantRange)
+                            string.addAttribute(.underlineColor, value: NSColor.orange, range: relevantRange)
                             string.endEditing()
 
-                            let a = Suggestion(actual: word, display: string, partOfSpeech: ex)
-                            newSuggestions.append(a)
+                            let suggestion = Suggestion(actual: word,
+                                                        display: string,
+                                                        partOfSpeech: firstDefinitionParts[1])
+                            newSuggestions.append(suggestion)
 
                             if newSuggestions.count >= 8 {
                                 break
@@ -151,30 +156,20 @@ class ViewController: NSViewController, NSTextViewDelegate, NSTableViewDataSourc
                         }
                     }
                 }
-
-
             }
 
             DispatchQueue.main.async {
                 let height: CGFloat = 19.5 * CGFloat(newSuggestions.count)
-                self.freakingAppKit.frame = NSRect(x: rect.origin.x - 60, y: self.textView.frame.height - rect.origin.y - height - rect.height - 5, width: 220, height: height)
+                self.tableViewScrollView.frame = NSRect(x: rect.origin.x - 60, y: self.textView.frame.height - rect.origin.y - height - rect.height - 5, width: 220, height: height)
 
                 self.suggestions = newSuggestions
                 self.tableView.reloadData()
                 self.tableView.selectRowIndexes(IndexSet(integersIn: 0...0), byExtendingSelection: false)
 
-                self.freakingAppKit.isHidden = false
+                self.tableViewScrollView.isHidden = false
             }
         }
     }
 
-    func boundingRectForCharacterRange(range: NSRange) -> CGRect? {
-        let layoutManager = textView.layoutManager!
-        let textContainer = textView.textContainer!
-
-        var glyphRange = NSRange()
-        layoutManager.characterRange(forGlyphRange: range, actualGlyphRange: &glyphRange)
-        return layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-    }
 
 }
